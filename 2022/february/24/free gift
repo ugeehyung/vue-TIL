@@ -1,0 +1,1982 @@
+<template>
+  <base-section class="cart-wrap pa-0">
+    <v-card
+      v-if="hasCartItems"
+      elevation="0"
+      class="mt-0 mx-auto rounded-0"
+      max-width="1180"
+    >
+      <!-- 장바구니 사은품 문구 영역 -->
+      <v-card-subtitle class="pt-8 text-md-left text-center cart-gift-notice">
+        <p class="ma-0 word-keep">
+          <!--25일까지 : --> 시스루 크리스틴 애쉬브라운은 2월 25일부터 순차적으로 배송됩니다 🚛
+          <!--28일 오전: 시스루 애쉬브라운 20p 구매 시 홀로그램 파우치를 드립니다 🤍-->
+        </p>
+      </v-card-subtitle>
+      <!-- end of 장바구니 사은품 문구 영역 -->
+      <v-card-text class="cart-items-wrap">
+        <v-checkbox
+          v-model="isSelectedAll"
+          @change="selectAllCartItems"
+          :label="allCheckBoxLabel"
+          color="#333333"
+          class="all-checkbox"
+        ></v-checkbox>
+        <div class="btn-selected-items-delete">
+          <v-btn
+            text
+            :ripple="false"
+            @click="deleteCartProducts(selectedCartItemIds)"
+            >선택삭제</v-btn
+          >
+        </div>
+
+        <v-list-item
+          v-for="(cartItem, cartItemId) in cart.items"
+          :key="`cart-item-${cart.cart_token}-${cartItemId}`"
+          class="cart-item"
+        >
+          <v-list-item-content class="py-0">
+            <v-row class="pb-1 ma-0 item-actions-row">
+              <v-col class="pa-0 col-6 item-checkbox">
+                <strong
+                  v-if="cartItem.disabled_reason === 'quantity'"
+                  class="disabled-reason"
+                  >품절</strong
+                >
+                <strong
+                  v-else-if="cartItem.disabled_reason === 'price'"
+                  class="word-keep disabled-reason"
+                  >가격 변경</strong
+                >
+                <v-checkbox
+                  v-else-if="!cartItem.disabled"
+                  v-model="selectedCartItemIds"
+                  :value="cartItemId"
+                  hide-details
+                  multiple
+                  color="#333333"
+                  class="ma-0 pa-0"
+                  @change="isSelectedAll = false"
+                ></v-checkbox>
+              </v-col>
+              <v-col class="pa-0 col-6">
+                <div class="btn-item-delete">
+                  <v-btn
+                    class="pa-0"
+                    small
+                    text
+                    @click="deleteCartProducts([cartItemId])"
+                    >삭제<v-icon>mdi-close</v-icon></v-btn
+                  >
+                </div>
+              </v-col>
+            </v-row>
+            <v-row class="pa-0 ma-0 item-info-row">
+              <v-col class="py-0 pl-1 pr-2 item-thumb">
+                <router-link
+                  :to="{
+                    name: 'CustomerProduct',
+                    params: {
+                      handle: getCartProduct(cartItem.ppb_product_id).handle,
+                    },
+                  }"
+                >
+                  <v-img
+                    :src="getCartProduct(cartItem.ppb_product_id).image.src"
+                    :alt="getCartProduct(cartItem.ppb_product_id).title"
+                    :class="{ disabled: cartItem.disabled }"
+                    max-width="150"
+                  ></v-img>
+                </router-link>
+              </v-col>
+              <v-col class="item-description">
+                <p class="item-title word-keep">
+                  <router-link
+                    :to="{
+                      name: 'CustomerProduct',
+                      params: {
+                        handle: getCartProduct(cartItem.ppb_product_id).handle,
+                      },
+                    }"
+                    class="black--text"
+                    style="text-decoration: none;"
+                  >
+                    {{ getCartProduct(cartItem.ppb_product_id).title }}
+                  </router-link>
+                </p>
+                <p v-if="!cartItem.disabled" class="item-price">
+                  <span
+                    v-if="
+                      cartItem.cart_item_price <
+                        getCompareAtPriceForCart(cartItem)
+                    "
+                    :class="{
+                      'compare-at-price': getCompareAtPriceForCart(cartItem),
+                    }"
+                  >
+                    ₩{{
+                      formatPrice(getCompareAtPriceForCart(cartItem), 'KRW')
+                    }}
+                  </span>
+                  <span
+                    :class="{
+                      'discount-price': getCompareAtPriceForCart(cartItem),
+                    }"
+                  >
+                    ₩{{ formatPrice(cartItem.cart_item_price, 'KRW') }}
+                  </span>
+                </p>
+                <div class="item-power">
+                  <span>도수 :</span>
+                  <select
+                    v-model="cartItem.variant_id"
+                    :disabled="cartItem.disabled"
+                    class="item-power-select"
+                    @change="
+                      checkHasSameOption(cartItem.variant_id);
+                      updateCartProduct(
+                        cartItem.ppb_product_id,
+                        cartItem.variant_id,
+                        cartItem.count,
+                        cartItemId,
+                        'power'
+                      );
+                    "
+                  >
+                    <option disabled selected value="0"
+                      >[필수] 옵션을 선택해주세요.</option
+                    >
+                    <option
+                      v-for="(v, index) in getCartProduct(
+                        cartItem.ppb_product_id
+                      ).variants || []"
+                      v-bind:key="`${v}-${index}`"
+                      v-bind:disabled="checkProductVariantAvailability(v)"
+                      v-bind:value="`${v.id}`"
+                    >
+                      {{ v.option2 }}
+                      {{ checkProductVariantAvailability(v) ? '[품절]' : '' }}
+                    </option>
+                  </select>
+                  <v-progress-circular
+                    v-if="
+                      showProgress &&
+                        updateVariantId === cartItem.variant_id &&
+                        updateType === 'power'
+                    "
+                    :width="3"
+                    indeterminate
+                    color="#000"
+                  />
+                </div>
+                <div class="pa-0 d-flex item-count">
+                  <span>수량 :</span>
+                  <div class="item-count-inner d-flex">
+                    <v-btn
+                      style="width: 20px; height: 30px; min-width: auto;"
+                      :disabled="cartItem.count < 2 || cartItem.disabled"
+                      @click="
+                        cartItem.count--;
+                        updateCartProduct(
+                          cartItem.ppb_product_id,
+                          cartItem.variant_id,
+                          cartItem.count,
+                          cartItemId,
+                          'quantity'
+                        );
+                      "
+                    >
+                      <v-icon small>mdi-minus</v-icon>
+                    </v-btn>
+                    <v-text-field
+                      v-model="cartItem.count"
+                      type="number"
+                      class="qty ma-0 pa-0 text-center"
+                      :disabled="cartItem.disabled"
+                      @change="
+                        updateCartProduct(
+                          cartItem.ppb_product_id,
+                          cartItem.variant_id,
+                          cartItem.count,
+                          cartItemId,
+                          'quantity'
+                        );
+                        showProgress = true;
+                      "
+                    ></v-text-field>
+                    <v-btn
+                      style="width:20px; height:30px; min-width: auto;"
+                      :disabled="998 < cartItem.count || cartItem.disabled"
+                      @click="
+                        cartItem.count++;
+                        updateCartProduct(
+                          cartItem.ppb_product_id,
+                          cartItem.variant_id,
+                          cartItem.count,
+                          cartItemId,
+                          'quantity'
+                        );
+                      "
+                    >
+                      <v-icon small>mdi-plus</v-icon>
+                    </v-btn>
+                  </div>
+                  <v-progress-circular
+                    v-if="
+                      showProgress &&
+                        updateVariantId === cartItem.variant_id &&
+                        updateType === 'quantity'
+                    "
+                    :width="3"
+                    indeterminate
+                    color="#000"
+                  />
+                </div>
+                <div v-if="!cartItem.disabled" class="item-total-price">
+                  <span>
+                    ₩{{
+                      formatPrice(
+                        cartItem.cart_item_price * cartItem.count,
+                        'KRW'
+                      )
+                    }}
+                  </span>
+                </div>
+              </v-col>
+              <v-col> </v-col>
+            </v-row>
+          </v-list-item-content>
+        </v-list-item>
+        <!-- 장바구니 사은품 영역 -->
+        <v-list-item v-show="freeGift" class="pa-0 ma-0 cart-gift">
+          <v-row class="align-center">
+            <v-col class="pl-4 py-5 gift-image-wrap">
+              <v-img :src="cartGiftImage" alt="사은품" max-width="150"></v-img>
+            </v-col>
+            <v-col class="gift-text-wrap">
+              <p class="mb-3 subtitle-1 font-weight-bold">
+                [사은품] 시스루 애쉬브라운 20p 구매시 증정
+              </p>
+              <p>0원</p>
+              <p class="subtitle-1">
+                시스루 렌즈에 어울리는 시스루 홀로그램 파우치 ✨
+              </p>
+            </v-col>
+          </v-row>
+        </v-list-item>
+        <v-list-item v-show="freeGift2" class="pa-0 ma-0 cart-gift">
+          <v-row class="align-center">
+            <v-col class="pl-4 py-5 gift-image-wrap">
+              <v-img :src="cartGiftImage2" alt="사은품" max-width="150"></v-img>
+            </v-col>
+            <v-col class="gift-text-wrap">
+              <p class="mb-3 subtitle-1 font-weight-bold">
+                [HAPA] Milk Solution
+              </p>
+              <p>0원</p>
+              <p class="subtitle-1">
+                하파 우유 먹고 커진 대용량 솔루션으로<br/>
+                렌즈를 보관해주세요 🥛
+              </p>
+            </v-col>
+          </v-row>
+        </v-list-item>
+        <!-- end of 장바구니 사은품 영역 -->
+        <v-row class="d-block cart-price-wrap">
+          <!--          <p>-->
+          <!--            상품합계<span class="cart-total-sale-before-price"-->
+          <!--              >₩{{ formatPrice(cartSubTotalPrice, 'KRW') }}</span-->
+          <!--            >-->
+          <!--          </p>-->
+          <!--          <p>-->
+          <!--            할인<span class="cart-total-sale-price"-->
+          <!--              >₩{{ formatPrice(cartTotalDiscount, 'KRW') }}</span-->
+          <!--            >-->
+          <!--          </p>-->
+          <p class="cart-total-price">
+            총 합계
+            <!--            <span-->
+            <!--              v-if="checkSelectedCartItemsHaveDiscountedProduct()"-->
+            <!--              class="has-discount-product-msg"-->
+            <!--            >-->
+            <!--              {{ '(할인가 적용)' }}-->
+            <!--            </span>-->
+            <span>₩{{ formatPrice(cartTotalPrice, 'KRW') }}</span>
+          </p>
+        </v-row>
+        <!--        <v-row class="mt-2 mb-3 btn-selected-delete">-->
+        <!--          <v-btn small @click.prevent="deleteCartProduct(selectedCartItemIds)"-->
+        <!--            >선택상품 삭제</v-btn-->
+        <!--          >-->
+        <!--        </v-row>-->
+      </v-card-text>
+      <v-card-text class="cart-box-wrap pb-6">
+        <p class="cart-box-title">예약자 정보</p>
+        <div v-if="!isCustomerSignedIn" class="login-request-wrap">
+          <p>예약자 정보를 기입하기 위해 로그인을 해주세요.</p>
+          <kakao-login></kakao-login>
+        </div>
+        <div class="customer-info-wrap">
+          <div v-if="!isCustomerSignedIn" class="cart-box-title">
+            비회원 주문
+          </div>
+          <v-row class="customer-input">
+            <label for="customerName">이름</label>
+            <input
+              id="customerName"
+              v-model="customerName"
+              autocomplete="off"
+              placeholder="이름을 입력해주세요."
+              type="text"
+            />
+          </v-row>
+          <v-row class="customer-input">
+            <label for="customerPhone">연락처</label>
+            <input
+              id="customerPhone"
+              :value="customerPhone"
+              class="customer-phone"
+              autocomplete="off"
+              placeholder="연락처를 입력해주세요."
+              type="tel"
+              @input="changePhoneNumber"
+              maxlength="13"
+            />
+            <v-btn
+              class="btn-check-number"
+              :class="{ active: validationNumber && !isValidated }"
+              text
+              @click="sentValidationCode"
+              >번호인증</v-btn
+            >
+          </v-row>
+          <v-row class="cart-box-save-phone" v-if="isCustomerSignedIn">
+            <v-checkbox
+              v-model="savePhone"
+              color="#333333"
+              label="연락처 저장 (연락처를 다음에도 사용)"
+            ></v-checkbox>
+          </v-row>
+          <v-row v-show="hasValidationCode" class="customer-input">
+            <v-col cols="12" class="pa-0">
+              <label>인증번호</label>
+              <div class="validation-code-input-wrap">
+                <input
+                  v-model="validationCode"
+                  id="validationCode"
+                  class="validation-code"
+                  autocomplete="off"
+                  placeholder="인증번호 입력"
+                  type="number"
+                  @input="checkValidationCode"
+                />
+                <span class="countdown"
+                  >{{ countDownMinutes }} : {{ countDownSeconds }}
+                </span>
+              </div>
+            </v-col>
+            <v-col cols="12" class="pa-0">
+              <div class="validation-code-info">
+                <p v-if="isValidationFailed" class="validation-fail">
+                  <v-icon>mdi-alert-circle-outline</v-icon> 번호 인증에
+                  실패했습니다.
+                  <span class="sub-txt">인증번호를 다시 확인해주세요.</span>
+                </p>
+                <p v-if="finishCountDown">
+                  인증시간이 만료되었습니다. 번호인증을 다시 진행해주세요.
+                </p>
+              </div>
+            </v-col>
+          </v-row>
+          <v-row
+            v-show="showFailedSentValidation"
+            class="validation-code-failed"
+          >
+            <p class="validation-code-info">* 번호를 다시 확인해주세요.</p>
+          </v-row>
+          <v-row v-show="isValidated" class="validation-success">
+            <p class="validation-code-info">
+              <v-icon>mdi-check</v-icon> 번호 인증이 완료되었습니다.
+            </p>
+          </v-row>
+          <div v-if="!isCustomerSignedIn" class="cart-box-term">
+            <p class="cart-box-title">약관 동의</p>
+            <div>
+              <v-checkbox
+                class="term-check-box font-weight-bold"
+                v-model="acceptAllTerms"
+                label="전체동의"
+              ></v-checkbox>
+            </div>
+            <div>
+              <p class="term-title">◦ 이용약관 동의</p>
+              <customer-cart-term></customer-cart-term>
+              <v-checkbox
+                class="term-check-box"
+                v-model="acceptTerm"
+                :value="acceptAllTerms"
+                label="이용약관에 동의합니다.(필수)"
+              ></v-checkbox>
+            </div>
+            <div>
+              <p class="term-title">◦ 개인정보 수집·이용 동의</p>
+              <customer-cart-term-privacy-policy></customer-cart-term-privacy-policy>
+              <v-checkbox
+                class="term-check-box"
+                v-model="acceptPrivacyTerm"
+                :value="acceptAllTerms"
+                label="개인정보 수집·이용에 동의합니다.(필수)"
+              ></v-checkbox>
+            </div>
+            <div class="term-wrap pa-0">
+              <v-checkbox
+                class="term-check-box"
+                v-model="acceptTermAgeOver14"
+                :value="acceptAllTerms"
+                label="만 14세 이상입니다.(필수)"
+              ></v-checkbox>
+            </div>
+          </div>
+        </div>
+      </v-card-text>
+      <v-card-text class="cart-box-wrap cart-pickup-store">
+        <p class="cart-box-title">나의 현재 픽업 매장</p>
+        <div v-if="hasPickUpFranchise && !pickUpFranchise.is_unable">
+          <div class="store-info">
+            <div>
+              <p class="store-name">
+                <v-icon small color="#ff7092">mdi-map-marker</v-icon
+                >{{ pickUpFranchise.store_name }}
+              </p>
+            </div>
+            <p class="store-address">{{ pickUpFranchise.full_address }}</p>
+            <a class="store-phone" v-bind:href="`tel:${pickUpFranchise.phone1}`"
+              >{{ pickUpFranchise.phone1 }}
+            </a>
+            <v-btn
+              class="btn-change-store"
+              @click="showChangeStore = true"
+              :ripple="false"
+              >변경</v-btn
+            >
+          </div>
+          <div class="store-map" v-if="showFranchiseMap">
+            <v-btn
+              class="btn-save-favorite-franchise"
+              text
+              small
+              :class="{ active: isFavorite }"
+              @click="toggleFavorite(isFavorite, pickUpFranchise.id)"
+            >
+              <v-icon>{{
+                isFavorite ? 'mdi-heart' : 'mdi-heart-plus-outline'
+              }}</v-icon>
+              {{ isFavorite ? '관심매장' : '관심매장등록' }}</v-btn
+            >
+            <kakao-map
+              :lat="Number(pickUpFranchise.lat)"
+              :lng="Number(pickUpFranchise.lng)"
+              :prop-franchise-id="Number(pickUpFranchise.id)"
+              :width="mapWidth"
+              :height="mapHeight"
+              :map-type="'storeDetail'"
+              :draggable="false"
+              :zoomable="false"
+            ></kakao-map>
+          </div>
+        </div>
+        <div v-else class="franchise-select-wrap">
+          <p>
+            <v-icon class="mr-1" color="red">mdi-alert-box-outline</v-icon>
+            <span v-html="noPickUpFranchiseMessage"></span>
+          </p>
+          <v-btn text @click="showChangeStore = true">픽업 매장 선택하기</v-btn>
+        </div>
+        <div class="pt-4 text-center">
+          <template v-if="isCustomerSignedIn && !currentUser.consent_accepted">
+            픽업 서비스를 이용하시려면
+            <router-link
+              :to="{ name: 'CustomerServiceAgreement' }"
+              style="color: #ff7092"
+              >이용약관에 동의</router-link
+            >
+            해주세요.
+          </template>
+        </div>
+      </v-card-text>
+      <v-card-actions
+        class="cart-action"
+        :class="{ active: checkoutCondition }"
+      >
+        <v-btn
+          class="btn-checkout"
+          @click="createOrder"
+          :loading="isCreatingOrder"
+          :disabled="isProcessing"
+        >
+          픽업 예약하기
+        </v-btn>
+      </v-card-actions>
+    </v-card>
+    <v-card
+      v-else
+      elevation="0"
+      class="cart-empty mx-auto rounded-0 mt-10"
+      max-width="1180"
+    >
+      <div v-if="isCreatingOrder">
+        <v-progress-circular indeterminate></v-progress-circular>
+        <p class="mt-7">예약이 진행 중 입니다. 잠시만 기다려 주세요.</p>
+      </div>
+      <div v-else>
+        <p>장바구니가 비어있습니다.</p>
+        <router-link to="/collections/best">
+          하파크리스틴의 베스트 상품을 확인해보세요.
+        </router-link>
+      </div>
+    </v-card>
+    <v-dialog
+      v-model="showChangeStore"
+      fullscreen
+      transition="dialog-bottom-transition"
+      hide-overlay
+      scrollable
+    >
+      <template>
+        <v-container class="store-change-modal-wrap">
+          <v-card>
+            <v-card-title class="d-block text-center change-modal-title">
+              <v-btn
+                class="mx-0 px-0 btn-close"
+                min-width="auto"
+                small
+                text
+                @click="showChangeStore = false"
+                :ripple="false"
+                >닫기</v-btn
+              >
+              <p>매장 선택</p>
+            </v-card-title>
+            <v-card-text class="pa-0">
+              <customer-store class="store-change-modal"></customer-store>
+            </v-card-text>
+          </v-card>
+        </v-container>
+      </template>
+    </v-dialog>
+    <v-dialog v-model="showCartChangedModal" max-width="350">
+      <customer-info-modal>
+        <template #title>
+          장바구니 변경 알림
+        </template>
+        <template #contents>
+          <p class="d-block">
+            장바구니 변경 상품 {{ disabledCartItems.length }}개
+          </p>
+          <span
+            v-for="(item, index) in disabledCartItems"
+            :key="`disabled-cart-item-${item.title}-${index}`"
+            class="d-block"
+          >
+            {{ item.title }} / {{ item.variant }}
+          </span>
+        </template>
+        <template #buttons>
+          <v-btn text @click="showCartChangedModal = false">확인 </v-btn>
+        </template>
+      </customer-info-modal>
+    </v-dialog>
+  </base-section>
+</template>
+
+<script>
+import ApplicationHelper from '@/mixins/ApplicationHelper';
+import CustomerHelper from '@/mixins/CustomerHelper';
+import BaseSection from '@/components/Section';
+import { call, get } from 'vuex-pathify';
+import _ from 'lodash';
+import KakaoMap from '@/components/ppb/KakaoMap';
+import CustomerStore from '@/views/customer-store/Index';
+import KakaoLogin from '@/components/ppb/KakaoLogin';
+import CustomerCartTermPrivacyPolicy from '@/views/customer-cart/components/CustomerCartTermPrivacyPolicy';
+import CustomerCartTerm from '@/views/customer-cart/components/CustomerCartTerm';
+import CustomerInfoModal from '@/components/customer/CustomerInfoModal';
+
+export default {
+  name: 'CustomerCart',
+  components: {
+    CustomerInfoModal,
+    CustomerCartTerm,
+    CustomerCartTermPrivacyPolicy,
+    CustomerStore,
+    BaseSection,
+    KakaoMap,
+    KakaoLogin,
+  },
+  props: {},
+  data: () => {
+    return {
+      isSelectedAll: true,
+      selectedCartItemIds: [],
+      mapWidth: '100%',
+      mapHeight: 230,
+      showFranchiseMap: false,
+      isCustomerSignedIn: false,
+      showChangeStore: false,
+      hasValidationCode: false,
+      validationCode: null,
+      customerName: '',
+      customerPhone: '',
+      validationNumber: false,
+      showFailedSentValidation: false,
+      validationId: '',
+      isValidated: false,
+      isValidationFailed: false,
+      acceptTerm: true,
+      acceptPrivacyTerm: true,
+      acceptTermAgeOver14: true,
+      acceptAllTerms: true,
+      countDown: 600,
+      timer: null,
+      finishCountDown: false,
+      showProgress: false,
+      updateVariantId: null,
+      savePhone: true,
+      updateType: null,
+      isCreatingOrder: false,
+      showCartChangedModal: false,
+      isProcessing: false,
+    };
+  },
+  computed: {
+    ...get('hapakr', ['isProductLoaded', 'cartToken', 'productsById', 'cart']),
+    pickUpFranchise() {
+      return (
+        this.exposedFranchises.filter(
+          f => f.id === this.cart.ppb_franchise_id
+        )[0] || {}
+      );
+    },
+    noPickUpFranchiseMessage() {
+      let result = '';
+      if (this.cart && !this.cart.ppb_franchise_id) {
+        result = '선택된 픽업 매장이 없습니다.';
+      } else if (this.hasPickUpFranchise && this.pickUpFranchise.is_unable) {
+        result = `기존에 선택하신 <strong>${
+          this.franchisesById[this.cart.ppb_franchise_id].store_name
+        }은 택배 파업으로 인해 일시적으로 픽업서비스 이용이 불가합니다.</strong>`;
+      } else if (!this.hasPickUpFranchise) {
+        result = `기존에 선택하신 <strong>${
+          this.franchisesById[this.cart.ppb_franchise_id].store_name
+        }은 더이상 픽업 서비스를 제공하지 않습니다.</strong>`;
+      }
+
+      return result;
+    },
+    // cartSubTotalPrice() {
+    //   return this.cart.total_price || 0; // todo total price, compare price, discount price 정리 필요, 현재 임의로
+    // },
+    // cartTotalDiscount() {
+    //   const cartItems = this.cart.items || [];
+    //   let totalDiscountPrice = 0;
+    //   _.map(cartItems, item => {
+    //     if (this.getCompareAtPrice(cartItem)) {
+    //       totalDiscountPrice += item.cart_item_price * item.count;
+    //     }
+    //   });
+    //   return totalDiscountPrice;
+    // },
+    hasPickUpFranchise() {
+      return 0 < Object.keys(this.pickUpFranchise).length;
+    },
+    hasCartItems() {
+      return this.cart.item_count > 0;
+    },
+    countDownMinutes() {
+      return Math.floor(this.countDown / 60);
+    },
+    countDownSeconds() {
+      const seconds = this.countDown % 60;
+      return 10 > seconds ? '0' + seconds : seconds;
+    },
+    checkoutCondition() {
+      if (this.isCustomerSignedIn) {
+        return (
+          this.hasPickUpFranchise &&
+          !this.pickUpFranchise.is_unable &&
+          this.selectedCartItemIds.length > 0 &&
+          this.isValidated &&
+          this.currentUser.consent_accepted
+        );
+      } else {
+        return (
+          this.hasPickUpFranchise &&
+          !this.pickUpFranchise.is_unable &&
+          this.selectedCartItemIds.length > 0 &&
+          this.isValidated &&
+          this.acceptTerm &&
+          this.acceptPrivacyTerm &&
+          this.acceptTermAgeOver14
+        );
+      }
+    },
+    cartTotalPrice() {
+      let result = 0;
+      if (this.selectedCartItemIds.length) {
+        _.each(this.selectedCartItemIds, selectedItem => {
+          const cartItem = this.cart.items[selectedItem];
+          result += cartItem.cart_item_price * cartItem.count;
+        });
+      }
+      return result;
+    },
+    isFavorite() {
+      return (
+        this.isSignedIn &&
+        (this.currentUser.favorite_franchise_ids || []).indexOf(
+          this.pickUpFranchise.id
+        ) >= 0
+      );
+    },
+    disabledCartItems() {
+      const result = [];
+      _.each(this.cart.items, cartItem => {
+        if (cartItem.disabled) {
+          const disabledItem =
+            this.getCartProduct(cartItem.ppb_product_id) || {};
+          const variant =
+            _.keyBy(disabledItem.variants, 'id')[cartItem.variant_id] || {};
+          result.push({
+            title: disabledItem.title,
+            disabled_reason: cartItem.disabled_reason,
+            variant: variant.option2,
+          });
+        }
+      });
+      return result;
+    },
+    // disabledReason() {
+    //   let result = [];
+    //   _.each(this.disabledItems, item => {
+    //     result.push(item.disabled_reason);
+    //   });
+    //   return result;
+    // },
+    allCheckBoxLabel() {
+      const cartTotal = _.size(this.cart.items);
+      const selectedItemsTotal = this.selectedCartItemIds.length;
+      return `전체선택(${selectedItemsTotal}/${cartTotal})`;
+    },
+    cartGiftImage() {
+      return 'https://cdn.shopify.com/s/files/1/0478/5655/0055/files/88662efaa0d2bde21b5a8379ac288bd0.png?v=1645145753';
+    },
+    cartGiftImage2() {
+      return 'https://cdn.shopify.com/s/files/1/0478/5655/0055/files/50c3fd674e33148dc3d2a24de38202d2.jpg?v=1644897572';
+    },
+    freeGift() {
+      let count = 0;
+      if (!this.isProductLoaded) {
+        return false;
+      }
+      if (!_.isEmpty(this.selectedCartItemIds)) {
+        _.each(this.selectedCartItemIds, id => {
+          const selectedCartItem = this.cart.items[id];
+          const selectedCartItemTitle = this.getCartProduct(
+            selectedCartItem.ppb_product_id
+          ).title;
+          if (
+            !selectedCartItem.disabled &&
+            selectedCartItemTitle.includes('See Through Kristin 1Day - Ash Brown (20p')
+            //this.getCompareAtPriceForCart(selectedCartItem)
+          ) {
+            count += selectedCartItem.count;
+          }
+        });
+      }
+      return 1 <= count;
+    },
+    freeGift2() {
+      let count = 0;
+      if (!this.isProductLoaded) {
+        return false;
+      }
+      if (!_.isEmpty(this.selectedCartItemIds)) {
+        _.each(this.selectedCartItemIds, id => {
+          const selectedCartItem = this.cart.items[id];
+
+          // const selectedCartItemCollection = this.getCartProduct(
+          //   selectedCartItem.ppb_product_id
+          // ).promotionCollectionHandle;
+
+          const selectedCartItemTitle = this.getCartProduct(
+            selectedCartItem.ppb_product_id
+          ).title;
+          if (
+            !selectedCartItem.disabled &&
+            selectedCartItemTitle.includes('Secretive Kristin Plus') &&
+            !selectedCartItemTitle.includes('1Day')
+            //selectedCartItemCollection.includes('secretive-plus-promotion')
+            //this.getCompareAtPriceForCart(selectedCartItem)
+          ) {
+            count += selectedCartItem.count;
+          }
+        });
+      }
+      return 2 <= count;
+    },
+  },
+  created() {
+    this.$nextTick(() => {
+      if (this.hasPickUpFranchise) {
+        this.showFranchiseMap = true;
+      }
+    });
+    this.refreshCart();
+    this.checkCartChanged();
+    this.selectAllCartItems();
+    if (this.isSignedIn) {
+      this.isCustomerSignedIn = true;
+      this.customerName = this.currentUser.name || '';
+      if (this.currentUser.is_phone_validated) {
+        this.customerPhone = this.currentUser.phone || '';
+        this.isValidated = true;
+      }
+    }
+  },
+  methods: {
+    ...call('hapakr', [
+      'getCartTotalPrice',
+      'initCart',
+      'putPpbHapakrCartItems',
+      'deletePpbHapakrCartItems',
+      'putPpbHapakrCartCreatePpbOrder',
+      'putPpbHapakrFranchisePublicAddFavorite',
+    ]),
+    ...call('app', ['postPpbValidations', 'putPpbValidations']),
+    refreshCart() {
+      this.initCart();
+    },
+    getCartProduct(ppbProductId) {
+      return this.productsById[ppbProductId] || { image: {} };
+    },
+    updateCartProduct(ppbProductId, variantId, count, cartItemId, type) {
+      this.showProgress = true;
+      this.updateVariantId = variantId;
+      this.updateType = type;
+
+      this.putPpbHapakrCartItems({
+        ppbProductId,
+        variantId,
+        count,
+        cartItemId,
+      })
+        .then(() => {
+          setTimeout(
+            () => {
+              this.showProgress = false;
+            },
+            this.updateType === 'power' ? 3000 : 400
+          );
+        })
+        .catch(err => {
+          console.log(err);
+          this.setCustomerSnackbar(`상품이 수정되지 않았습니다.`);
+        });
+    },
+    // checkSelectedCartItemsHaveDiscountedProduct() {
+    //   let result = false;
+    //   _.each(this.selectedCartItemIds, selectedItem => {
+    //     const cartProduct = this.getCartProduct(
+    //       this.cart.items[selectedItem].ppb_product_id
+    //     );
+    //     if (
+    //       cartProduct.variants[0].price < this.getCompareAtPrice(cartProduct)
+    //     ) {
+    //       result = true;
+    //     }
+    //   });
+    //   return result;
+    // },
+    checkHasSameOption(variantId) {
+      const sameOptionItems = [];
+      _.each(this.cart.items, item => {
+        if (Number(variantId) === Number(item.variant_id)) {
+          sameOptionItems.push(item);
+        }
+      });
+      if (sameOptionItems.length > 1) {
+        this.setCustomerSnackbar(
+          '같은 상품의 동일한 도수의 상품이 존재합니다. 상품을 확인해주세요.'
+        );
+      }
+    },
+    checkProductVariantAvailability(variant) {
+      return variant.inventory_quantity <= 0;
+    },
+    deleteCartProducts(selectedItemIds) {
+      const cartItemIds = [...selectedItemIds];
+      this.unselectCartItems(cartItemIds);
+
+      this.deletePpbHapakrCartItems({ cartItemIds })
+        .then(() => {})
+        .catch(err => {
+          console.log(err);
+          this.setCustomerSnackbar(`상품을 삭제하지 못했습니다.`);
+        });
+    },
+    selectAllCartItems() {
+      if (this.isSelectedAll) {
+        const arr = [];
+        _.forEach(this.cart.items, function(val, key) {
+          if (!val.disabled) {
+            arr.push(key);
+          }
+        });
+        return (this.selectedCartItemIds = arr);
+      } else {
+        return (this.selectedCartItemIds = []);
+      }
+    },
+    unselectCartItems(cartItemIds) {
+      _.each(cartItemIds, id => {
+        const indexToBeUnselected = this.selectedCartItemIds.indexOf(id);
+        if (indexToBeUnselected !== -1) {
+          this.selectedCartItemIds.splice(indexToBeUnselected, 1);
+        }
+      });
+    },
+    changePhoneNumber(e) {
+      const value = e.target.value.replace(/[^0-9]/g, '');
+      this.customerPhone = this.formatPhone(value);
+
+      this.resetValidationCode();
+
+      if (this.timer) {
+        clearTimeout(this.timer);
+        this.countDown = 600;
+      }
+
+      if (value.length === 11) return (this.validationNumber = true);
+      return (this.validationNumber = false);
+    },
+    sentValidationCode() {
+      this.validationCode = null;
+      this.isValidationFailed = false;
+      this.finishCountDown = false;
+
+      if (this.validationNumber) {
+        const phone = this.customerPhone.replace(/-/g, '');
+        this.postPpbValidations({ phone })
+          .then(res => {
+            this.validationId = res.data.id;
+            if (this.timer) {
+              clearTimeout(this.timer);
+              this.countDown = 600;
+            }
+            this.countDownTimer();
+          })
+          .catch(err => {
+            this.showFailedSentValidation = true;
+            console.log(err);
+          })
+          .finally(() => {
+            this.hasValidationCode = true;
+          });
+      }
+    },
+    checkValidationCode() {
+      const { validationId } = this;
+      const code = this.validationCode;
+
+      if (code.length === 4) {
+        this.putPpbValidations({ validationId, code })
+          .then(res => {
+            if (res.data.status === 'success') {
+              this.isValidated = true;
+              this.hasValidationCode = false;
+              if (this.timer) {
+                clearTimeout(this.timer);
+                this.countDown = 600;
+              }
+            } else if (res.data.status === 'fail') {
+              this.isValidationFailed = true;
+            }
+          })
+          .catch(err => {
+            console.log(err);
+            this.isValidationFailed = true;
+          })
+          .finally(() => {});
+      }
+    },
+    createOrder() {
+      const selectedCartItemIds = this.selectedCartItemIds;
+      const { customerName, customerPhone, savePhone } = this;
+      if (this.checkoutCondition) {
+        this.isProcessing = true;
+        this.putPpbHapakrCartCreatePpbOrder({
+          selectedCartItemIds,
+          customerName,
+          customerPhone,
+          savePhone,
+        })
+          .then(res => {
+            this.isCreatingOrder = true;
+            setTimeout(() => {
+              this.goToPage({
+                name: 'CustomerMypageOrder',
+                params: { token: res.data.token_customer },
+              });
+            }, 4500); // fb, ga 등등 기다림
+          })
+          .catch(err => {
+            if (err.response.status === 422) {
+              this.refreshCart();
+              this.scrollTop();
+
+              this.isCreatingOrder = false;
+              this.setCustomerSnackbar(
+                `예약 실패: ${err.response.data.message}`
+              );
+              return;
+            }
+            this.setCustomerSnackbar(
+              `예약에 실패하였습니다. 다시 시도해주세요`
+            );
+            this.isCreatingOrder = false;
+            this.isProcessing = false;
+          });
+      } else if (
+        this.isCustomerSignedIn &&
+        !this.currentUser.consent_accepted
+      ) {
+        this.setCustomerSnackbar('이용약관 동의가 필요합니다.');
+      } else if (!this.selectedCartItemIds.length) {
+        this.setCustomerSnackbar('선택된 상품이 없습니다.');
+      } else {
+        this.setCustomerSnackbar(`예약 정보를 확인해주세요`);
+      }
+    },
+    countDownTimer() {
+      if (this.countDown > 0) {
+        this.timer = setTimeout(() => {
+          this.countDown -= 1;
+          this.countDownTimer();
+        }, 1000);
+      } else {
+        this.finishCountDown = true;
+      }
+    },
+    resetValidationCode() {
+      this.isValidated = false;
+      this.hasValidationCode = false;
+      this.validationCode = null;
+      this.isValidationFailed = false;
+      this.finishCountDown = false;
+    },
+    // 할인상품일 때 compare_at_price(원가) 존재
+    getCompareAtPriceForCart(cartItem) {
+      const product = this.getCartProduct(cartItem.ppb_product_id) || {};
+      return this.getCompareAtPrice(product);
+    },
+    checkCartChanged() {
+      if (this.disabledCartItems.length) {
+        this.showCartChangedModal = true;
+      }
+    },
+  },
+  beforeDestroy() {
+    if (this.timer) {
+      clearTimeout(this.timer);
+    }
+  },
+  mixins: [ApplicationHelper, CustomerHelper],
+  watch: {
+    cart() {
+      //console.log('watch cart', this.cart);
+      if (this.hasPickUpFranchise) {
+        this.showFranchiseMap = true;
+      }
+    },
+    isSignedIn(val) {
+      this.isCustomerSignedIn = val;
+    },
+    showChangeStore(val) {
+      const el = document.body;
+      if (val === true) {
+        el.classList.add('open-store-dialog');
+      } else {
+        el.classList.remove('open-store-dialog');
+      }
+    },
+  },
+};
+</script>
+
+<style lang="scss">
+.cart-wrap {
+  max-width: 780px;
+  .v-card {
+    padding: 48px 30px 0;
+  }
+  .cart-items-wrap {
+    position: relative;
+    padding: 0 12px;
+    .all-checkbox {
+      border-bottom: 1px solid #000;
+      .v-input__slot {
+        margin: 0 0 10px;
+        .v-input--selection-controls__input {
+          margin-right: 5px;
+          & + label {
+            max-width: 80px;
+          }
+        }
+      }
+      .v-messages.theme--light {
+        display: none;
+      }
+      label {
+        font-size: 12px;
+      }
+    }
+    .v-input--selection-controls__input .v-icon {
+      font-size: 22px;
+    }
+
+    .btn-selected-items-delete {
+      position: absolute;
+      top: 0;
+      right: 0;
+      .v-btn {
+        font-size: 12px;
+        color: rgba(0, 0, 0, 0.6);
+        &:hover {
+          &:before {
+            opacity: 0;
+          }
+        }
+      }
+    }
+    .v-input--selection-controls__ripple {
+      display: none;
+    }
+
+    .cart-item {
+      padding: 15px 0;
+      border-bottom: 1px solid #e8e8e8;
+
+      .v-list-item__content {
+        flex-flow: column;
+        align-items: unset;
+
+        .item-actions-row {
+          justify-content: space-between;
+
+          .item-checkbox {
+            flex: 0 0 6%;
+            max-width: 6%;
+          }
+
+          .btn-item-delete {
+            text-align: right;
+
+            .v-btn {
+              .v-icon {
+                font-size: 15px;
+              }
+
+              &:before {
+                content: none;
+              }
+
+              .v-ripple__container {
+                display: none;
+              }
+            }
+          }
+        }
+
+        .item-info-row {
+          justify-content: space-between;
+          .item-thumb {
+            flex: 0 0 30%;
+            max-width: 30%;
+          }
+
+          .item-description {
+            position: relative;
+            flex: 0 0 calc(70% - 20px);
+            max-width: calc(70% - 20px);
+            padding: 2px 0 0;
+
+            .item-title {
+              max-width: 85%;
+              min-height: 20px;
+              font-size: 14px !important;
+              margin-bottom: 10px;
+            }
+
+            .item-power,
+            .item-count {
+              display: flex;
+              font-size: 13px;
+
+              span {
+                line-height: 30px;
+              }
+
+              .item-power-select {
+                max-width: 80px;
+                width: 100%;
+                height: 30px;
+                font-size: 12px;
+                border-radius: 0;
+                border: 1px solid #e8e8e8;
+                margin: 0 0 5px 10px;
+                padding-left: 10px;
+                box-sizing: border-box;
+                color: #000000;
+                appearance: none;
+                -webkit-appearance: none;
+                -moz-appearance: none;
+
+                &:focus {
+                  border-color: #000000;
+                  color: #000000;
+                }
+              }
+
+              .v-progress-circular {
+                width: 17px !important;
+                margin-left: 5px;
+                height: 29px !important;
+              }
+            }
+
+            .item-price {
+              font-size: 13px;
+              margin: 4px 0 15px;
+
+              span {
+                margin: 0 !important;
+                padding-bottom: 4px;
+                display: block;
+              }
+            }
+
+            .item-count {
+              .item-count-inner {
+                max-width: 80px;
+                width: 100%;
+                margin: 0 0 5px 10px;
+              }
+
+              .v-btn {
+                background-color: #fff;
+                box-shadow: none;
+                padding: 0 10px;
+                width: 20px;
+                border: 1px solid #e8e8e8;
+                border-radius: 0;
+
+                .v-icon {
+                  font-size: 13px !important;
+                }
+
+                &.v-btn--disabled {
+                  background-color: #fff !important;
+                }
+              }
+
+              .v-input {
+                font-size: 13px;
+                border-top: 1px solid #e8e8e8;
+                border-bottom: 1px solid #e8e8e8;
+                height: 30px;
+                line-height: 30px;
+                box-sizing: border-box;
+                overflow: hidden;
+
+                .v-input__slot {
+                  margin: 0;
+                }
+
+                .v-text-field__details {
+                  display: none;
+                }
+
+                input {
+                  text-align: center;
+                }
+              }
+
+              .v-progress-circular {
+                width: 17px !important;
+                margin-left: 6px;
+              }
+            }
+
+            .item-total-price {
+              margin: 0;
+              padding-right: 6px;
+              width: 100%;
+              text-align: right;
+              font-size: 15px;
+              line-height: 33px;
+
+              .v-skeleton-loader__text {
+                margin: 6px 0;
+                width: 80%;
+                max-width: 90px;
+                height: 16px;
+                float: right;
+              }
+            }
+          }
+        }
+      }
+    }
+    .cart-gift {
+      padding: 20px 0;
+      border-bottom: 1px solid #e8e8e8;
+      .gift-image-wrap {
+        flex: 0 0 30%;
+        max-width: 30%;
+      }
+      .gift-text-wrap {
+        max-width: 70%;
+      }
+    }
+    .cart-price-wrap {
+      margin: 0;
+      padding: 10px 5px;
+      border-bottom: 1px solid #000;
+      p {
+        margin: 0 0 2px 0;
+        font-size: 13px;
+        color: #000;
+        overflow: hidden;
+        span {
+          float: right;
+          line-height: 2;
+          &.has-discount-product-msg {
+            float: none;
+            font-size: 13px;
+            font-weight: 400;
+          }
+        }
+        &.cart-total-price {
+          margin-top: 10px;
+          font-size: 16px;
+          font-weight: 600;
+        }
+        .cart-total-sale-price {
+          color: #ff7092;
+        }
+      }
+    }
+  }
+  .btn-selected-delete {
+    .v-btn {
+      background-color: transparent !important;
+      box-shadow: none;
+      font-size: 12px;
+    }
+  }
+  .customer-info-wrap {
+    .customer-input {
+      margin: 10px 0 0;
+      label {
+        font-size: 13px;
+        width: 70px;
+        color: #999999;
+        line-height: 35px;
+        display: inline-block;
+      }
+      input {
+        border: 1px solid #e8e8e8;
+        height: 35px;
+        padding: 0 10px;
+        max-width: 300px;
+        width: calc(100% - 70px);
+        font-size: 15px;
+        color: #000;
+        line-height: normal;
+        &::placeholder {
+          font-size: 13px;
+        }
+        &.customer-phone {
+          max-width: 220px;
+          width: calc(100% - 150px);
+        }
+        &.validation-code {
+          max-width: 160px;
+          width: calc(100% - 210px);
+          vertical-align: top;
+        }
+      }
+      &:active,
+      :focus {
+        outline: none;
+      }
+      .validation-code-input-wrap {
+        max-width: 220px;
+        width: calc(100% - 150px);
+        font-size: 15px;
+        border: 1px solid #e8e8e8;
+        display: inline-flex;
+        box-sizing: border-box;
+        input {
+          border: 0;
+          width: 100%;
+        }
+        .countdown {
+          color: #d32f2f;
+          font-size: 13px;
+          width: auto;
+          min-width: 55px;
+          text-align: right;
+          line-height: 35px;
+          padding-right: 10px;
+        }
+      }
+    }
+    .btn-check-number {
+      font-size: 13px;
+      border: 1px solid #e8e8e8;
+      border-radius: 0;
+      height: 35px;
+      min-width: auto;
+      padding: 0 10px;
+      background: #fff;
+      font-weight: 500;
+      width: 80px;
+      text-align: center;
+      border-left: 0;
+      box-sizing: border-box;
+      &.active {
+        border: 1px solid #000;
+        background-color: #000;
+        color: #fff;
+      }
+    }
+    .btn-check-code {
+      font-size: 13px;
+      background: #e8e8e8;
+      border-radius: 0;
+      height: 35px;
+      min-width: auto;
+      padding: 0 10px;
+      font-weight: 500;
+      width: 60px;
+      text-align: center;
+      border-left: 0;
+      box-sizing: border-box;
+    }
+    .validation-code-info {
+      margin: 5px 0 0 70px;
+      font-size: 12px;
+      color: #000;
+      p {
+        margin: 0;
+      }
+      span {
+        color: #d32f2f;
+        &.countdown {
+          color: #d32f2f;
+        }
+        &.sub-txt {
+          display: block;
+          margin-left: 18px;
+        }
+      }
+      .validation-fail {
+        color: #d32f2f;
+        box-sizing: border-box;
+        margin-bottom: 4px;
+        font-size: 11px;
+        .v-icon {
+          font-size: 15px;
+          color: #d32f2f;
+          margin-top: -2px;
+        }
+      }
+    }
+    .validation-code-failed {
+      margin: 3px 0 0;
+      .validation-code-info {
+        color: #e11833;
+      }
+    }
+    .validation-success {
+      margin: 3px 0 0;
+      .v-icon {
+        font-size: 15px;
+        color: #000;
+        margin-top: -2px;
+      }
+    }
+    .cart-box-save-phone {
+      margin: 5px 0 0 70px;
+      .v-input {
+        margin: 0;
+        padding: 0;
+        .v-input__slot {
+          margin: 0;
+        }
+        .v-input--selection-controls__input {
+          margin: -2px 2px 0 -4px;
+        }
+        .v-icon {
+          font-size: 22px;
+        }
+        label {
+          font-size: 13px;
+        }
+        .v-input--selection-controls__ripple {
+          display: none;
+        }
+        .v-messages {
+          display: none;
+        }
+      }
+    }
+    .cart-box-term {
+      margin-top: 20px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid #efefef;
+      .term-title {
+        margin: 8px 0;
+      }
+      .term-wrap {
+        border: 1px solid #e8e8e8;
+        padding: 0 10px 7px;
+        margin-bottom: 8px;
+        line-height: 1.5;
+        font-size: 11px;
+        &:last-child {
+          border: none;
+        }
+        .v-input {
+          margin: 0;
+          padding: 0 0 5px 0;
+          border: none;
+          .v-label {
+            font-size: 13px;
+          }
+          .v-input__slot {
+            margin: 0;
+          }
+          .v-messages {
+            display: none;
+          }
+        }
+        .term {
+          margin: 10px 3px 5px;
+          padding: 10px;
+          max-height: 100px;
+          overflow-y: scroll;
+          font-size: 12px;
+        }
+      }
+      .term-check-box {
+        margin-top: 0 !important;
+        .v-label {
+          font-size: 15px;
+        }
+      }
+      .term-wrap + .v-input {
+        .v-label {
+          font-size: 13px;
+        }
+      }
+      .v-messages.theme--light {
+        display: none;
+      }
+    }
+  }
+  .login-request-wrap {
+    border-bottom: 1px solid #e8e8e8;
+    padding-bottom: 25px;
+    margin-bottom: 20px;
+    p {
+      font-size: 13px;
+      margin: 0;
+    }
+    .btn-login {
+      width: 100%;
+      display: block;
+      text-align: center;
+      margin-top: 15px;
+      height: 40px;
+      line-height: 40px;
+      border: 1px solid #000;
+      border-radius: 30px;
+      text-decoration: none;
+      font-size: 13px;
+    }
+  }
+  .cart-box-wrap {
+    padding: 20px 15px;
+    .row {
+      &:last-child {
+        padding-bottom: 20px;
+        border-bottom: 1px solid #efefef;
+      }
+    }
+    &.cart-pickup-store {
+      padding: 0 15px 20px !important;
+    }
+    .cart-box-title {
+      font-size: 15px;
+      color: #000;
+      font-weight: 600;
+    }
+    .store-info {
+      position: relative;
+      .store-name {
+        font-size: 14px;
+        font-weight: 600;
+        margin-bottom: 5px;
+        color: #000;
+        display: inline-block;
+        .v-icon {
+          position: relative;
+          top: -1px;
+          margin-right: 1px;
+        }
+      }
+      .store-address,
+      .store-phone {
+        font-size: 11px;
+        color: rgba(0, 0, 0, 0.6);
+        margin-bottom: 5px;
+      }
+      .btn-change-store {
+        position: absolute;
+        top: 0;
+        right: 0;
+        min-width: auto;
+        height: auto;
+        font-size: 13px;
+        background: transparent !important;
+        box-shadow: none;
+        text-decoration: underline;
+        padding: 0;
+      }
+      .store-favorite {
+        left: 15px;
+        top: -10px;
+        .v-icon {
+          font-size: 14px;
+        }
+      }
+    }
+    .franchise-select-wrap {
+      margin-bottom: 20px;
+      p {
+        font-size: 13px;
+        margin: 0;
+      }
+      .v-btn {
+        width: 100%;
+        display: block;
+        text-align: center;
+        margin-top: 15px;
+        height: 40px;
+        line-height: 40px;
+        border: 1px solid #000;
+        border-radius: 30px;
+        text-decoration: none;
+        font-size: 13px;
+      }
+    }
+  }
+  .store-map {
+    position: relative;
+    margin-top: 10px;
+    #map {
+      border: 1px solid #dfdfdf;
+      .custom-overlay {
+        display: none;
+      }
+    }
+    .btn-save-favorite-franchise {
+      position: absolute;
+      right: 7px;
+      top: 8px;
+      z-index: 9;
+      background: #333333;
+      height: auto;
+      padding: 3px 7px 5px;
+      margin-left: 8px;
+      color: #ffffff;
+      border-radius: 4px;
+      .v-icon {
+        font-size: 16px;
+        position: relative;
+        top: 1px;
+        margin-right: 3px;
+      }
+      &.active {
+        background: #ff7092;
+      }
+    }
+  }
+  .cart-action {
+    width: 100%;
+    padding: 0 15px;
+    margin-bottom: 20px;
+    .btn-checkout {
+      width: 100%;
+      background: #eee !important;
+      border: 1px solid #eee;
+      color: #afafaf;
+      border-radius: 30px;
+      box-shadow: none;
+      height: 40px;
+      line-height: 40px;
+      font-size: 15px;
+      letter-spacing: 0;
+      cursor: not-allowed;
+    }
+    &.active {
+      .btn-checkout {
+        background-color: #000 !important;
+        color: #fff;
+        cursor: pointer;
+      }
+    }
+  }
+  .cart-empty {
+    font-size: 15px;
+    text-align: center;
+    padding: 100px 0;
+  }
+}
+.change-modal-title {
+  border-bottom: 1px solid #eaeaea;
+  line-height: 1;
+  padding: 16px 0 !important;
+  transition: all 0.3s ease-in-out;
+  .btn-close {
+    position: absolute;
+    top: 10px;
+    left: 20px;
+  }
+  p {
+    margin: 0;
+    font-size: 1rem;
+  }
+}
+.store-change-modal {
+  background-color: #ffffff;
+  margin: 0;
+  border-top: 0;
+  max-width: 100%;
+  .store-map-wrap {
+    .store-list {
+      bottom: 0;
+    }
+  }
+}
+.v-dialog__content {
+  transition: none;
+  .v-dialog {
+    &.v-dialog--fullscreen {
+      transition: none;
+    }
+  }
+}
+.open-store-dialog {
+  .store-change-modal-wrap {
+    width: 100%;
+    max-width: 780px;
+    height: 100%;
+    background-color: #fff;
+    padding: 0;
+    .change-modal-title {
+      position: fixed;
+      top: 0;
+      max-width: 780px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 100%;
+      z-index: 9;
+      background: #fff;
+    }
+    .v-tabs {
+      position: fixed;
+      top: 49px;
+      z-index: 9;
+      max-width: 780px;
+      left: 50%;
+      transform: translateX(-50%);
+      transition: all 0.3s ease-in-out;
+    }
+    .v-card {
+      border-radius: 0;
+      box-shadow: none;
+      &.store-list {
+        border-top-right-radius: 10px;
+        border-top-left-radius: 10px;
+      }
+      .v-tabs-items {
+        margin-top: 97px !important;
+        .store-search-wrap {
+          padding-top: 1px;
+        }
+        .all-store-map {
+          margin-top: 20px;
+        }
+      }
+    }
+  }
+  .v-dialog__content {
+    .v-dialog {
+      &.v-dialog--fullscreen {
+        box-shadow: none;
+        background: rgb(0 0 0 / 30%);
+      }
+    }
+  }
+}
+@media screen and (max-width: 960px) {
+  .cart-wrap {
+    > div {
+      padding: 40px 6px 0 !important;
+    }
+    .cart-items-wrap {
+      .cart-item {
+        padding: 12px 0 15px;
+        .item-actions-row {
+          .item-checkbox {
+            display: flex;
+            align-items: flex-end;
+
+            .disabled-reason {
+              font-size: 11px;
+            }
+          }
+        }
+
+        .v-list-item__content {
+          .item-info-row {
+            .item-description {
+              padding-left: 10px;
+              flex: 0 0 calc(70%);
+              max-width: calc(70%);
+              .item-power {
+                font-size: 12px;
+                .item-power-select {
+                  max-width: 70px;
+                }
+              }
+
+              .item-count {
+                font-size: 12px;
+                .item-count-inner {
+                  max-width: 70px;
+                }
+              }
+
+              .item-total-price {
+                max-width: 120px;
+                position: absolute;
+                right: 0;
+                bottom: 0;
+                font-size: 14px;
+              }
+            }
+          }
+        }
+      }
+      .cart-price-wrap {
+        p.cart-total-price {
+          font-size: 15px;
+        }
+      }
+    }
+  }
+  .open-store-dialog {
+    .v-dialog__content {
+      transition: 0.4s cubic-bezier(0.25, 0.8, 0.25, 1);
+      .v-dialog {
+        &.v-dialog--fullscreen {
+          top: 34px;
+          transition: inherit;
+          border-top-left-radius: 10px;
+          border-top-right-radius: 10px;
+          .container {
+            width: 100%;
+            float: none;
+            max-width: 100%;
+            &.store-locator-wrap {
+              top: 145px;
+            }
+            &.store-change-modal-wrap {
+              height: 100vh;
+              background-color: #ffffff;
+              .change-modal-title {
+                top: 34px;
+                border-top-right-radius: 15px;
+                border-top-left-radius: 15px;
+              }
+              .v-tabs {
+                top: 83px;
+                max-width: 100%;
+                transform: none;
+                left: auto;
+              }
+              .v-card {
+                box-shadow: none;
+                padding-bottom: 3px !important;
+                &.store-list {
+                  bottom: 0;
+                }
+                .v-tabs-items {
+                  margin-top: 120px;
+                  .all-store-map {
+                    margin-top: 12px;
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+@media screen and (max-width: 320px) {
+  .cart-wrap {
+    .cart-items-wrap {
+      .cart-item {
+        .v-list-item__content {
+          .item-info-row {
+            .item-description {
+              flex: 0 0 calc(70%);
+              max-width: calc(70%);
+
+              .item-count {
+                .v-progress-circular {
+                  width: 12px !important;
+                }
+              }
+              .item-total-price {
+                max-width: 80px;
+
+                span {
+                  font-size: 13px;
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+</style>
